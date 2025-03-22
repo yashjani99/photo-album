@@ -1,28 +1,19 @@
 {
   "name": "photo-album",
   "version": "1.0.0",
-  "main": "server.js",
+  "main": "index.js",
   "scripts": {
-    "start": "node server.js"
+       "start": "node index.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
+  "description": "",
   "dependencies": {
     "@azure/storage-blob": "^12.27.0",
     "dotenv": "^16.4.7",
     "ejs": "^3.1.10",
     "express": "^4.21.2",
     "multer": "^1.4.5-lts.2"
-  },
-  "devDependencies": {},
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/yashjani99/photo-album.git"
-  },
-  "bugs": {
-    "url": "https://github.com/yashjani99/photo-album/issues"
-  },
-  "homepage": "https://github.com/yashjani99/photo-album#readme",
-  "description": ""
+  }
 }
