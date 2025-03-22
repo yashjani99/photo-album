@@ -36,7 +36,7 @@ app.set('view engine', 'ejs');
 // Dummy authentication middleware for demonstration.
 // In a real app, use a proper authentication system.
 app.use((req, res, next) => {
-  // Simulating a user with a role.
+  // For demo, we simulate a user. Change role to 'admin' or 'user' to test.
   req.user = { username: 'demo', role: 'admin' }; // Change to 'user' for testing user access
   next();
 });
@@ -69,8 +69,8 @@ app.get('/upload', (req, res) => {
   res.render('upload');
 });
 
-// Route: POST Image Upload (Admin only)
-app.post('/upload', ensureAdmin, upload.single('image'), async (req, res) => {
+// Route: POST Image Upload
+app.post('/upload', upload.single('image'), async (req, res) => {
   if (!req.file) {
     return res.status(400).send('No file uploaded.');
   }
