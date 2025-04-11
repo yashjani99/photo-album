@@ -3,7 +3,8 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const { BlobServiceClient } = require('@azure/storage-blob');
-const session = require('express-session'); // Import express-session for session management
+const session = require('express-session');
+const bodyParser = require('body-parser');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -32,6 +33,8 @@ createContainerIfNotExists();
 
 // Set EJS as the view engine
 app.set('view engine', 'ejs');
+app.use(express.static('public'));
+app.use(bodyParser.urlencoded({ extended: true }));
 
 // Set up session middleware
 app.use(session({
@@ -42,7 +45,6 @@ app.use(session({
 
 // Dummy authentication middleware for demonstration
 app.use((req, res, next) => {
-  // For demo, we simulate a user. Change role to 'admin' or 'user' to test.
   if (!req.session.user) {
     req.session.user = { username: 'guest', role: 'user' }; // Simulate logged-out state
   }
@@ -79,7 +81,6 @@ app.get('/login', (req, res) => {
 
 // Route: POST Login (Simulate login)
 app.post('/login', (req, res) => {
-  // Simple login simulation. Replace this with proper authentication in real applications.
   const { username, password } = req.body;
   if (username === 'admin' && password === 'password') {
     req.session.user = { username, role: 'admin' };
@@ -95,7 +96,7 @@ app.post('/login', (req, res) => {
 // Route: GET Upload form (only for logged-in users)
 app.get('/upload', (req, res) => {
   if (!req.session.user) {
-    return res.redirect('/login'); // Redirect to login page if user isn't authenticated
+    return res.redirect('/login');
   }
   res.render('upload');
 });
@@ -103,13 +104,12 @@ app.get('/upload', (req, res) => {
 // Route: POST Image Upload (only for logged-in users)
 app.post('/upload', upload.single('image'), async (req, res) => {
   if (!req.session.user) {
-    return res.redirect('/login'); // Redirect to login page if user isn't authenticated
+    return res.redirect('/login');
   }
   if (!req.file) {
     return res.status(400).send('No file uploaded.');
   }
   try {
-    // Create a unique name for the blob using timestamp
     const blobName = Date.now() + path.extname(req.file.originalname);
     const blockBlobClient = containerClient.getBlockBlobClient(blobName);
     await blockBlobClient.uploadData(req.file.buffer);
