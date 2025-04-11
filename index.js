@@ -1,168 +1,194 @@
 require('dotenv').config();
 const express = require('express');
-const multer = require('multer');
-const path = require('path');
-const { BlobServiceClient } = require('@azure/storage-blob');
 const session = require('express-session');
-const bodyParser = require('body-parser');
+const multer  = require('multer');
+const { BlobServiceClient } = require('@azure/storage-blob');
 
 const app = express();
-const port = process.env.PORT || 3000;
 
-// In-memory user data (This will be replaced with database in production)
-const users = [
-  { username: 'admin', password: 'password', role: 'admin' },
-  { username: 'user', password: 'password', role: 'user' }
-];
-
-// Configure Multer to store files in memory
-const storage = multer.memoryStorage();
-const upload = multer({ storage: storage });
-
-// Azure Blob Storage Setup
-const AZURE_STORAGE_CONNECTION_STRING = process.env.AZURE_STORAGE_CONNECTION_STRING;
-const containerName = process.env.AZURE_STORAGE_CONTAINER_NAME || 'photos';
-const blobServiceClient = BlobServiceClient.fromConnectionString(AZURE_STORAGE_CONNECTION_STRING);
-const containerClient = blobServiceClient.getContainerClient(containerName);
-
-// Create container if it doesn't exist
-async function createContainerIfNotExists() {
-  const exists = await containerClient.exists();
-  if (!exists) {
-    await containerClient.create();
-    console.log(`Container "${containerName}" created.`);
-  } else {
-    console.log(`Container "${containerName}" exists.`);
-  }
-}
-createContainerIfNotExists();
-
-// Set EJS as the view engine
-app.set('view engine', 'ejs');
-app.use(express.static('public'));
-app.use(bodyParser.urlencoded({ extended: true }));
-
-// Set up session middleware
+// Express session setup (in-memory store)
 app.use(session({
-  secret: 'your_secret_key',
+  secret: process.env.SESSION_SECRET || 'secret',  // secret for signing session ID cookie
   resave: false,
-  saveUninitialized: true
+  saveUninitialized: false
 }));
 
-// Dummy authentication middleware for demonstration
+// Body parsers for form data
+app.use(express.urlencoded({ extended: true }));   // parse URL-encoded form bodies
+
+// Serve static files (CSS, etc.)
+app.use(express.static('public'));
+
+// Set EJS as the templating engine
+app.set('view engine', 'ejs');
+
+// In-memory user "database"
+const users = [];  // Will hold objects: { username, password, role }
+
+// Azure Blob Storage client setup
+const blobServiceClient = BlobServiceClient.fromConnectionString(process.env.AZURE_STORAGE_CONNECTION_STRING);
+const containerClient = blobServiceClient.getContainerClient(process.env.AZURE_STORAGE_CONTAINER_NAME);
+// (Ensure that the container exists in your Azure Storage account before running the app)
+
+// Configure Multer for file uploads (store files in memory as Buffer)
+const upload = multer({ storage: multer.memoryStorage() });
+/* Multer's memoryStorage provides the file in req.file.buffer for direct use&#8203;:contentReference[oaicite:4]{index=4} */
+
+// Middleware to make `req.session.user` available in templates as `user`
 app.use((req, res, next) => {
-  if (!req.session.user) {
-    req.session.user = { username: 'guest', role: 'user' }; // Simulate logged-out state
-  }
+  res.locals.user = req.session.user;
   next();
 });
 
-// Middleware for role-based access (Admin only)
+// Authentication middleware to protect routes
+function ensureAuth(req, res, next) {
+  if (req.session.user) {
+    return next();
+  }
+  // If not logged in, redirect to landing page
+  res.redirect('/');
+}
+
+// Authorization middleware for admin-only actions
 function ensureAdmin(req, res, next) {
   if (req.session.user && req.session.user.role === 'admin') {
     return next();
   }
-  return res.status(403).send('Access denied.');
+  // If not an admin, respond with Forbidden
+  return res.status(403).send('Forbidden');
 }
 
-// Route: Home – Display the photo gallery
-app.get('/', async (req, res) => {
-  let blobs = [];
-  try {
-    for await (const blob of containerClient.listBlobsFlat()) {
-      blobs.push(blob.name);
-    }
-    res.render('gallery', { images: blobs, user: req.session.user });
-  } catch (err) {
-    console.error('Error listing blobs:', err);
-    res.status(500).send('Error retrieving images.');
+// ** Routes ** //
+
+// Landing page (home)
+app.get('/', (req, res) => {
+  if (!req.session.user) {
+    // Not logged in: show prompt to log in or register
+    return res.render('index');
+  } else {
+    // Logged in: redirect to gallery
+    return res.redirect('/gallery');
   }
 });
 
-// Route: Register - Display the registration form
+// Registration page
 app.get('/register', (req, res) => {
-  res.render('register');
+  res.render('register', { error: null });
 });
 
-// Route: POST Register - Create a new user
+// Handle registration form submission
 app.post('/register', (req, res) => {
   const { username, password, role } = req.body;
-  // Check if username already exists
-  const existingUser = users.find(user => user.username === username);
-  if (existingUser) {
-    return res.status(400).send('Username already exists');
+  // Basic validation
+  if (!username || !password || !role) {
+    return res.render('register', { error: 'All fields are required.' });
   }
-  
-  // Create a new user and save it to the users array
-  const newUser = { username, password, role: role || 'user' };
-  users.push(newUser);
-  res.redirect('/login');
+  // Check if username is already taken
+  if (users.find(u => u.username === username)) {
+    return res.render('register', { error: 'Username already taken.' });
+  }
+  // Store new user (password stored in plain text for this demo)
+  users.push({ username, password, role });
+  // Redirect to login page with a success indicator
+  return res.redirect('/login?registerSuccess=1');
 });
 
-// Route: Login (Simulation)
+// Login page
 app.get('/login', (req, res) => {
-  res.render('login');
+  // If redirected after registration, `registerSuccess` will be set
+  const registerSuccess = req.query.registerSuccess;
+  const error = req.query.error;
+  res.render('login', { registerSuccess, error });
 });
 
-// Route: POST Login (Verify user credentials)
+// Handle login form submission
 app.post('/login', (req, res) => {
   const { username, password } = req.body;
   const user = users.find(u => u.username === username && u.password === password);
-  
   if (user) {
-    req.session.user = user;
-    return res.redirect('/');
+    // Credentials match: save user info in session
+    req.session.user = { username: user.username, role: user.role };
+    // Redirect to gallery after successful login
+    return res.redirect('/gallery');
   } else {
-    return res.status(401).send('Invalid credentials');
+    // Login failed: redirect back to login with error flag
+    return res.redirect('/login?error=1');
   }
 });
 
-// Route: GET Upload form (only for logged-in users)
-app.get('/upload', (req, res) => {
-  if (!req.session.user) {
-    return res.redirect('/login');
+// Logout route
+app.get('/logout', (req, res) => {
+  // Destroy the session and clear cookie
+  req.session.destroy(err => {
+    res.clearCookie('connect.sid');
+    return res.redirect('/');
+  });
+});
+
+// Gallery page (protected: must be logged in)
+app.get('/gallery', ensureAuth, async (req, res) => {
+  try {
+    // Retrieve list of blobs (images) from Azure Blob Storage
+    const blobs = [];
+    for await (const blob of containerClient.listBlobsFlat()) {
+      // Construct a public URL for each blob
+      const blobClient = containerClient.getBlockBlobClient(blob.name);
+      blobs.push({ 
+        name: blob.name, 
+        url: blobClient.url  // URL to directly access the image&#8203;:contentReference[oaicite:5]{index=5}
+      });
+    }
+    return res.render('gallery', { images: blobs });
+  } catch (err) {
+    console.error('Error listing blobs:', err);
+    return res.status(500).send('Error retrieving images.');
   }
+});
+
+// Upload page (protected)
+app.get('/upload', ensureAuth, (req, res) => {
   res.render('upload');
 });
 
-// Route: POST Image Upload (only for logged-in users)
-app.post('/upload', upload.single('image'), async (req, res) => {
-  if (!req.session.user) {
-    return res.redirect('/login');
-  }
+// Handle image upload form submission (protected)
+app.post('/upload', ensureAuth, upload.single('image'), async (req, res) => {
   if (!req.file) {
     return res.status(400).send('No file uploaded.');
   }
   try {
-    const blobName = Date.now() + path.extname(req.file.originalname);
+    // Use current timestamp to help make unique blob names
+    const originalName = req.file.originalname;
+    const blobName = Date.now() + '-' + originalName;
+    // Upload the file buffer to Azure Blob Storage
     const blockBlobClient = containerClient.getBlockBlobClient(blobName);
     await blockBlobClient.uploadData(req.file.buffer);
-    res.redirect('/');
+    // After successful upload, redirect to gallery to show the new image
+    return res.redirect('/gallery');
   } catch (err) {
-    console.error('Upload error:', err);
-    res.status(500).send('Error uploading image.');
+    console.error('Error uploading file:', err);
+    return res.status(500).send('Upload failed. Please try again.');
   }
 });
 
-// Route: POST Delete image (Admin-only)
-app.post('/delete/:blobName', ensureAdmin, async (req, res) => {
-  const blobName = req.params.blobName;
+// Delete image (admin only)
+app.post('/delete', ensureAuth, ensureAdmin, async (req, res) => {
+  const blobName = req.body.name;
+  if (!blobName) {
+    return res.status(400).send('No image specified.');
+  }
   try {
+    // Delete the blob from Azure Storage
     const blockBlobClient = containerClient.getBlockBlobClient(blobName);
     await blockBlobClient.delete();
-    res.redirect('/');
+    return res.redirect('/gallery');
   } catch (err) {
-    console.error('Delete error:', err);
-    res.status(500).send('Error deleting image.');
+    console.error('Error deleting blob:', err);
+    return res.status(500).send('Failed to delete image.');
   }
 });
 
-// Basic error handler middleware
-app.use((err, req, res, next) => {
-  console.error('Server error:', err);
-  res.status(500).send('Internal Server Error');
-});
-
-app.listen(port, () => {
-  console.log(`Server is running on port ${port}`);
+// Start the server
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
 });
