@@ -9,6 +9,12 @@ const bodyParser = require('body-parser');
 const app = express();
 const port = process.env.PORT || 3000;
 
+// In-memory user data (This will be replaced with database in production)
+const users = [
+  { username: 'admin', password: 'password', role: 'admin' },
+  { username: 'user', password: 'password', role: 'user' }
+];
+
 // Configure Multer to store files in memory
 const storage = multer.memoryStorage();
 const upload = multer({ storage: storage });
@@ -63,7 +69,6 @@ function ensureAdmin(req, res, next) {
 app.get('/', async (req, res) => {
   let blobs = [];
   try {
-    // List all blobs in the container
     for await (const blob of containerClient.listBlobsFlat()) {
       blobs.push(blob.name);
     }
@@ -74,19 +79,38 @@ app.get('/', async (req, res) => {
   }
 });
 
+// Route: Register - Display the registration form
+app.get('/register', (req, res) => {
+  res.render('register');
+});
+
+// Route: POST Register - Create a new user
+app.post('/register', (req, res) => {
+  const { username, password, role } = req.body;
+  // Check if username already exists
+  const existingUser = users.find(user => user.username === username);
+  if (existingUser) {
+    return res.status(400).send('Username already exists');
+  }
+  
+  // Create a new user and save it to the users array
+  const newUser = { username, password, role: role || 'user' };
+  users.push(newUser);
+  res.redirect('/login');
+});
+
 // Route: Login (Simulation)
 app.get('/login', (req, res) => {
   res.render('login');
 });
 
-// Route: POST Login (Simulate login)
+// Route: POST Login (Verify user credentials)
 app.post('/login', (req, res) => {
   const { username, password } = req.body;
-  if (username === 'admin' && password === 'password') {
-    req.session.user = { username, role: 'admin' };
-    return res.redirect('/');
-  } else if (username === 'user' && password === 'password') {
-    req.session.user = { username, role: 'user' };
+  const user = users.find(u => u.username === username && u.password === password);
+  
+  if (user) {
+    req.session.user = user;
     return res.redirect('/');
   } else {
     return res.status(401).send('Invalid credentials');
