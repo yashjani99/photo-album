@@ -11,8 +11,7 @@
           <div class="card-body">
             <p class="card-text"><%= img.name %></p>
             <% if (user && user.role === 'admin') { %>
-              <form action="/delete" method="POST" class="d-inline" 
-                    onsubmit="return confirm('Delete this image?');">
+              <form action="/delete" method="POST">
                 <input type="hidden" name="name" value="<%= img.name %>">
                 <button type="submit" class="btn btn-danger btn-sm">Delete</button>
               </form>
